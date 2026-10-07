@@ -30,29 +30,25 @@ jobs:
           $fidoScript = Join-Path $env:TEMP "Fido.ps1"
 
           Write-Host "Downloading Fido script..."
-          Invoke-WebRequest -Uri "https://raw.githubusercontent.com/pbatard/Fido/master/Fido.ps1" `
-            -OutFile $fidoScript `
-            -UseBasicParsing `
-            -ErrorAction Stop
+          Invoke-WebRequest -Uri "https://raw.githubusercontent.com/pbatard/Fido/master/Fido.ps1" -OutFile $fidoScript -UseBasicParsing -ErrorAction Stop
 
           Write-Host "Getting Windows 11 ISO URL..."
-          $url = & powershell -ExecutionPolicy Bypass -File $fidoScript `
-            -Win 11 `
-            -Rel Latest `
-            -Ed "Windows 11 Home/Pro/Edu" `
-            -Lang English `
-            -Arch x64 `
-            -GetUrl
+          $params = @{
+            Win = 11
+            Rel = "Latest"
+            Ed = "Windows 11 Home/Pro/Edu"
+            Lang = "English"
+            Arch = "x64"
+            GetUrl = $true
+          }
+          $url = & powershell -ExecutionPolicy Bypass -File $fidoScript @params
 
           if (-not $url) {
             throw "Failed to get Windows 11 ISO URL from Fido"
           }
 
           Write-Host "ISO URL obtained, downloading..."
-          Invoke-WebRequest -Uri $url `
-            -OutFile $isoPath `
-            -UseBasicParsing `
-            -ErrorAction Stop
+          Invoke-WebRequest -Uri $url -OutFile $isoPath -UseBasicParsing -ErrorAction Stop
 
           if (Test-Path $isoPath) {
             $size = (Get-Item $isoPath).Length / 1GB
@@ -96,12 +92,15 @@ jobs:
           Write-Host "Scratch Dir: $scratchDir"
           Write-Host "Output Dir: $outputDir"
 
-          & powershell -ExecutionPolicy Bypass -File "$env:GITHUB_WORKSPACE\tiny11maker.ps1" `
-            -ISO $driveLetter `
-            -SCRATCH $scratchDir `
-            -OutputPath "$outputDir\tiny11.iso" `
-            -NonInteractive `
-            -SkipAdminPrompt
+          $params = @{
+            ISO = $driveLetter
+            SCRATCH = $scratchDir
+            OutputPath = Join-Path $outputDir "tiny11.iso"
+            NonInteractive = $true
+            SkipAdminPrompt = $true
+          }
+
+          & powershell -ExecutionPolicy Bypass -File "$env:GITHUB_WORKSPACE\tiny11maker.ps1" @params
 
           if (Test-Path "$outputDir\tiny11.iso") {
             $size = (Get-Item "$outputDir\tiny11.iso").Length / 1GB
@@ -127,12 +126,15 @@ jobs:
           Write-Host "Scratch Dir: $scratchDir"
           Write-Host "Output Dir: $outputDir"
 
-          & powershell -ExecutionPolicy Bypass -File "$env:GITHUB_WORKSPACE\tiny11Coremaker.ps1" `
-            -ISO $driveLetter `
-            -SCRATCH $scratchDir `
-            -OutputPath "$outputDir\tiny11core.iso" `
-            -NonInteractive `
-            -SkipAdminPrompt
+          $params = @{
+            ISO = $driveLetter
+            SCRATCH = $scratchDir
+            OutputPath = Join-Path $outputDir "tiny11core.iso"
+            NonInteractive = $true
+            SkipAdminPrompt = $true
+          }
+
+          & powershell -ExecutionPolicy Bypass -File "$env:GITHUB_WORKSPACE\tiny11Coremaker.ps1" @params
 
           if (Test-Path "$outputDir\tiny11core.iso") {
             $size = (Get-Item "$outputDir\tiny11core.iso").Length / 1GB
