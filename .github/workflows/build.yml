@@ -8,7 +8,7 @@ permissions:
 
 jobs:
   build-tiny11:
-    runs-on: windows-latest
+    runs-on: windows-2022
     timeout-minutes: 300
 
     steps:
@@ -17,23 +17,26 @@ jobs:
 
       - name: Get build date
         id: buildmeta
-        shell: powershell
+        shell: pwsh
         run: |
           $date = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
-          "build_date=$date" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "build_date=$date" >> $env:GITHUB_OUTPUT
 
       - name: Download Windows 11 ISO using Fido
         id: iso
-        shell: powershell
+        shell: pwsh
         run: |
           $isoPath = Join-Path $env:TEMP "Windows11_latest.iso"
           $fidoScript = Join-Path $env:TEMP "Fido.ps1"
 
           Write-Host "Downloading Fido script..."
-          Invoke-WebRequest -Uri "https://raw.githubusercontent.com/pbatard/Fido/master/Fido.ps1" -OutFile $fidoScript -UseBasicParsing -ErrorAction Stop
+          Invoke-WebRequest -Uri "https://raw.githubusercontent.com/pbatard/Fido/master/Fido.ps1" `
+            -OutFile $fidoScript `
+            -UseBasicParsing `
+            -ErrorAction Stop
 
-          Write-Host "Getting Windows 11 ISO URL..."
-          $url = & powershell -ExecutionPolicy Bypass -File $fidoScript `
+          Write-Host "Resolving Windows 11 ISO URL..."
+          $url = & powershell -NoProfile -ExecutionPolicy Bypass -File $fidoScript `
             -Win 11 `
             -Rel Latest `
             -Ed "Windows 11 Home/Pro/Edu" `
@@ -45,38 +48,44 @@ jobs:
             throw "Failed to get Windows 11 ISO URL from Fido"
           }
 
-          Write-Host "ISO URL obtained, downloading..."
+          Write-Host "Downloading ISO..."
           Invoke-WebRequest -Uri $url -OutFile $isoPath -UseBasicParsing -ErrorAction Stop
 
-          if (Test-Path $isoPath) {
-            $size = (Get-Item $isoPath).Length / 1GB
-            Write-Host "ISO downloaded successfully. Size: $([math]::Round($size, 2)) GB"
-            "iso_path=$isoPath" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-          } else {
+          if (-not (Test-Path $isoPath)) {
             throw "ISO was not downloaded."
           }
 
-      - name: Mount ISO and get drive letter
+          "iso_path=$isoPath" >> $env:GITHUB_OUTPUT
+          Write-Host "ISO downloaded successfully: $isoPath"
+
+      - name: Mount ISO and resolve drive letter
         id: mount
-        shell: powershell
+        shell: pwsh
         run: |
           $isoPath = "${{ steps.iso.outputs.iso_path }}"
-          Write-Host "Mounting ISO from: $isoPath"
+          Write-Host "Mounting ISO: $isoPath"
 
-          $mount = Mount-DiskImage -ImagePath $isoPath -PassThru
-          Start-Sleep -Seconds 2
+          $mounted = Mount-DiskImage -ImagePath $isoPath -PassThru -ErrorAction Stop
 
-          $drive = ($mount | Get-Volume).DriveLetter
+          $drive = $null
+          for ($i = 0; $i -lt 30; $i++) {
+            $volume = Get-DiskImage -ImagePath $isoPath | Get-Volume -ErrorAction SilentlyContinue
+            if ($volume -and $volume.DriveLetter) {
+              $drive = "$($volume.DriveLetter):"
+              break
+            }
+            Start-Sleep -Seconds 2
+          }
 
           if (-not $drive) {
             throw "Could not determine ISO drive letter."
           }
 
-          "drive_letter=$drive" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "drive_letter=$drive" >> $env:GITHUB_OUTPUT
           Write-Host "Mounted ISO to drive letter: $drive"
 
       - name: Build tiny11 ISO
-        shell: powershell
+        shell: pwsh
         run: |
           $driveLetter = "${{ steps.mount.outputs.drive_letter }}"
           $outputDir = Join-Path $env:TEMP "tiny11-output"
@@ -85,32 +94,25 @@ jobs:
           New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
           New-Item -ItemType Directory -Path $scratchDir -Force | Out-Null
 
-          Write-Host "Running tiny11maker..."
-          Write-Host "ISO Drive: $driveLetter"
-          Write-Host "Scratch Dir: $scratchDir"
-          Write-Host "Output Dir: $outputDir"
-
           $params = @{
-            ISO = $driveLetter
+            ISO = $driveLetter.TrimEnd(":")
             SCRATCH = $scratchDir
             OutputPath = Join-Path $outputDir "tiny11.iso"
             NonInteractive = $true
             SkipAdminPrompt = $true
           }
 
-          & powershell -ExecutionPolicy Bypass -File "$env:GITHUB_WORKSPACE\tiny11maker.ps1" @params
+          Write-Host "Running tiny11maker..."
+          & powershell -NoProfile -ExecutionPolicy Bypass -File "$env:GITHUB_WORKSPACE\tiny11maker.ps1" @params
 
-          if (Test-Path "$outputDir\tiny11.iso") {
-            $size = (Get-Item "$outputDir\tiny11.iso").Length / 1GB
-            Write-Host "tiny11.iso created successfully. Size: $([math]::Round($size, 2)) GB"
-            "tiny11_iso=$outputDir\tiny11.iso" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          } else {
-            Write-Host "WARNING: tiny11.iso not found."
-            "tiny11_iso=" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          if (-not (Test-Path (Join-Path $outputDir "tiny11.iso"))) {
+            throw "tiny11.iso was not created."
           }
 
+          "tiny11_iso=$((Join-Path $outputDir "tiny11.iso"))" >> $env:GITHUB_ENV
+
       - name: Build tiny11core ISO
-        shell: powershell
+        shell: pwsh
         run: |
           $driveLetter = "${{ steps.mount.outputs.drive_letter }}"
           $outputDir = Join-Path $env:TEMP "tiny11-output"
@@ -119,45 +121,40 @@ jobs:
           New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
           New-Item -ItemType Directory -Path $scratchDir -Force | Out-Null
 
-          Write-Host "Running tiny11coremaker..."
-          Write-Host "ISO Drive: $driveLetter"
-          Write-Host "Scratch Dir: $scratchDir"
-          Write-Host "Output Dir: $outputDir"
-
           $params = @{
-            ISO = $driveLetter
+            ISO = $driveLetter.TrimEnd(":")
             SCRATCH = $scratchDir
             OutputPath = Join-Path $outputDir "tiny11core.iso"
             NonInteractive = $true
             SkipAdminPrompt = $true
           }
 
-          & powershell -ExecutionPolicy Bypass -File "$env:GITHUB_WORKSPACE\tiny11Coremaker.ps1" @params
+          Write-Host "Running tiny11coremaker..."
+          & powershell -NoProfile -ExecutionPolicy Bypass -File "$env:GITHUB_WORKSPACE\tiny11Coremaker.ps1" @params
 
-          if (Test-Path "$outputDir\tiny11core.iso") {
-            $size = (Get-Item "$outputDir\tiny11core.iso").Length / 1GB
-            Write-Host "tiny11core.iso created successfully. Size: $([math]::Round($size, 2)) GB"
-            "tiny11core_iso=$outputDir\tiny11core.iso" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          } else {
-            Write-Host "WARNING: tiny11core.iso not found."
-            "tiny11core_iso=" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          if (-not (Test-Path (Join-Path $outputDir "tiny11core.iso"))) {
+            throw "tiny11core.iso was not created."
           }
+
+          "tiny11core_iso=$((Join-Path $outputDir "tiny11core.iso"))" >> $env:GITHUB_ENV
 
       - name: Dismount ISO
         if: always()
-        shell: powershell
+        shell: pwsh
         run: |
+          $isoPath = "${{ steps.iso.outputs.iso_path }}"
           try {
-            $isoPath = "${{ steps.iso.outputs.iso_path }}"
             if (Test-Path $isoPath) {
-              Dismount-DiskImage -ImagePath $isoPath -Confirm:$false
+              Dismount-DiskImage -ImagePath $isoPath -Confirm:$false | Out-Null
               Write-Host "ISO dismounted"
             }
-          } catch {
-            Write-Host "ISO already dismounted or error during dismount: $_"
+          }
+          catch {
+            Write-Host "ISO already dismounted or error during dismount: $($_.Exception.Message)"
           }
 
       - name: Publish GitHub Release
+        if: ${{ env.tiny11_iso != '' && env.tiny11core_iso != '' }}
         uses: softprops/action-gh-release@v2
         with:
           tag_name: releases
@@ -170,7 +167,7 @@ jobs:
 
       - name: Cleanup
         if: always()
-        shell: powershell
+        shell: pwsh
         run: |
           Write-Host "Cleaning up temporary files..."
           Remove-Item -Path "$env:TEMP\Windows11_latest.iso" -Force -ErrorAction SilentlyContinue
