@@ -33,15 +33,13 @@ jobs:
           Invoke-WebRequest -Uri "https://raw.githubusercontent.com/pbatard/Fido/master/Fido.ps1" -OutFile $fidoScript -UseBasicParsing -ErrorAction Stop
 
           Write-Host "Getting Windows 11 ISO URL..."
-          $params = @{
-            Win = 11
-            Rel = "Latest"
-            Ed = "Windows 11 Home/Pro/Edu"
-            Lang = "English"
-            Arch = "x64"
-            GetUrl = $true
-          }
-          $url = & powershell -ExecutionPolicy Bypass -File $fidoScript @params
+          $url = & powershell -ExecutionPolicy Bypass -File $fidoScript `
+            -Win 11 `
+            -Rel Latest `
+            -Ed "Windows 11 Home/Pro/Edu" `
+            -Lang "English" `
+            -Arch x64 `
+            -GetUrl
 
           if (-not $url) {
             throw "Failed to get Windows 11 ISO URL from Fido"
